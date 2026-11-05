@@ -1,0 +1,12 @@
+/target/
+/dist/
+/artifacts/
+/native/win64/*.dll
+/native/win64/*.lib
+/native/linux/*.so*
+/firmware/
+*.mem
+*.bin
+*.ppm
+*.log
+.env

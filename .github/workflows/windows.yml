@@ -1,0 +1,27 @@
+name: Windows native
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Prepare Unicorn native DLL
+        shell: pwsh
+        run: ./scripts/setup-windows.ps1
+      - name: Formatting
+        run: cargo fmt --check
+      - name: Lints
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Native tests
+        run: cargo test --locked
+      - name: Release build and ARM self-test
+        shell: pwsh
+        run: ./scripts/build-windows.ps1

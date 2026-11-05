@@ -1,0 +1,25 @@
+[package]
+name = "dsmc-emulator"
+version = "0.1.0"
+edition = "2024"
+description = "Native desktop runner for RED DSMC ARM firmware"
+
+[dependencies]
+eframe = { version = "0.33.3", default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }
+rfd = "0.15.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+md5 = "0.7"
+libloading = "0.8"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+# Preserve readable, explicit register arithmetic and nested validation guards.
+[lints.clippy]
+collapsible_if = "allow"
+manual_is_multiple_of = "allow"
+chunks_exact_to_as_chunks = "allow"
+too_many_arguments = "allow"

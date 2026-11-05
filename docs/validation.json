@@ -1,0 +1,137 @@
+{
+  "date": "2026-11-05",
+  "platform": "Windows x64, x86_64-pc-windows-msvc",
+  "rust": "1.98.0",
+  "unicorn": "2.1.4 (native DLL, no Python runtime)",
+  "firmware_sha256": "9abec2a4fe588cc523c9b87b9190729a67a1e750463b08b5e175d32309f29ef0",
+  "full_camera_boot_verified": false,
+  "unit_tests": {
+    "passed": 18,
+    "failed": 0
+  },
+  "checks": {
+    "cargo_fmt": true,
+    "cargo_clippy_all_targets_deny_warnings": true,
+    "native_arm_self_test": true,
+    "native_desktop_screenshot": true,
+    "native_desktop_frame_from_live_worker": true,
+    "dark_theme_with_light_windows_mode": true,
+    "custom_title_bar_native_commands": true
+  },
+  "native_menu_check": {
+    "profile": "lightweight offline inspection",
+    "passed": true,
+    "path": [
+      "Menu",
+      "Settings",
+      "Display",
+      "Escape to Settings"
+    ],
+    "elapsed_seconds": 19.9116326,
+    "estimated_instructions": 283622723,
+    "estimated_mips": 14.244071729206173,
+    "final_native_menu": [
+      "Display",
+      "Look",
+      "Project",
+      "Audio",
+      "Recording",
+      "Setup",
+      "Maintenance"
+    ],
+    "native_input_messages": 9,
+    "notes": [
+      "Fresh boot, no saved CPU state",
+      "Headless driver sends native pointer/key messages; OS keyboard focus is not under test",
+      "Native dialogs acknowledged through their own buttons"
+    ]
+  },
+  "native_hardware_check": {
+    "ui_bootstrap_enabled": false,
+    "passed": true,
+    "native_initialization_returns": {
+      "NAND": true,
+      "TPS65950": true,
+      "brain GPIO expander": true
+    },
+    "virtual_board_count": 9,
+    "native_board_index": [
+      4,
+      2,
+      7,
+      1,
+      6,
+      255,
+      3,
+      8,
+      0,
+      5,
+      255,
+      255,
+      255,
+      255,
+      255,
+      255,
+      255,
+      255,
+      255,
+      255,
+      255,
+      255,
+      255,
+      255,
+      255,
+      255,
+      255,
+      255,
+      255,
+      255,
+      255,
+      255,
+      255,
+      255,
+      255,
+      255,
+      255,
+      255,
+      255,
+      255,
+      255,
+      255,
+      255,
+      255,
+      255,
+      255,
+      255,
+      255,
+      255,
+      255,
+      255,
+      255,
+      255,
+      255
+    ],
+    "elapsed_seconds": 1.6176257,
+    "estimated_instructions": 15820188
+  },
+  "hardware_mode_ui": {
+    "native_menu_settings_display_observed": true,
+    "escape_to_parent_verified": false,
+    "status": "experimental; missing camera services can block interaction",
+    "full_camera_boot_verified": false
+  },
+  "performance_notes": "Local measurements, approximate block-based instruction counts. Different machines/profiles are not directly comparable.",
+  "presentation": {
+    "theme": "dark, floating pill navigation, dotted background, blue/cyan/pink/amber accents",
+    "modules": [
+      "app.rs",
+      "app/theme.rs",
+      "app/screen.rs",
+      "app/panels.rs",
+      "app/settings.rs",
+      "app/title_bar.rs"
+    ],
+    "rustfmt_max_width": 100,
+    "window_chrome": "custom dark title bar, native minimize/maximize/restore/close, drag and resize handles"
+  }
+}
