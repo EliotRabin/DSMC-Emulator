@@ -1,0 +1,119 @@
+{
+  "full_hardware_emulated": false,
+  "components": [
+    {
+      "name": "ARM Cortex-A8",
+      "level": "subset",
+      "scope": "Instructions ARM/Thumb et vecteurs natifs via Unicorn.",
+      "remaining": "Timing au cycle et moniteur securise complet."
+    },
+    {
+      "name": "Interruptions & horloges",
+      "level": "subset",
+      "scope": "INTC, priorites, masques, acquittements et ticks RTOS.",
+      "remaining": "Horloges approximatives ; tous les timers OMAP ne sont pas modelises."
+    },
+    {
+      "name": "SDMA / McSPI / I2C",
+      "level": "subset",
+      "scope": "FIFO, transferts RAM/SPI/NAND et interruptions.",
+      "remaining": "Modes de transfert avances et certains peripheriques esclaves."
+    },
+    {
+      "name": "GPIO & TPS65950",
+      "level": "registers",
+      "scope": "Six banques GPIO, extensions, PMIC, RTC et registres codec.",
+      "remaining": "Interruptions GPIO externes, rails analogiques et flux audio."
+    },
+    {
+      "name": "NAND & YAFFS",
+      "level": "subset",
+      "scope": "Flash vierge volatile ; assets en lecture seule et fichiers de session en RAM.",
+      "remaining": "ECC materiel, dump NAND usine et calibration originale."
+    },
+    {
+      "name": "Identites des cartes",
+      "level": "synthetic",
+      "scope": "Neuf EEPROM 1-Wire virtuelles et decouverte ROM native.",
+      "remaining": "Identites synthetiques ; aucun contenu usine."
+    },
+    {
+      "name": "GPMC & RAM IOB",
+      "level": "subset",
+      "scope": "Fenetre par banques de 64 Mo ; DDR creuse de 512 Mo.",
+      "remaining": "Surcouche limitee a 32 Mo ; autres regions IOB non implementees."
+    },
+    {
+      "name": "SATA / SSD virtuels",
+      "level": "subset",
+      "scope": "Deux HBA AHCI, IDENTIFY, lecture/ecriture et flush ; SSD vierges de 64 Mo.",
+      "remaining": "Mode polling ; liaison IRQ IOB, PHY et validation du pilote RED incompletes."
+    },
+    {
+      "name": "Temperatures & ventilateurs",
+      "level": "synthetic",
+      "scope": "Cinq sondes I2C et deux ventilateurs : PWM et tachymetrie coherents ; HAL natif.",
+      "remaining": "Temperatures fixes ; pas de dynamique thermique ou de calibration usine."
+    },
+    {
+      "name": "ADC audio",
+      "level": "registers",
+      "scope": "Configuration I2C et coefficients separes sur deux pages.",
+      "remaining": "Acquisition PCM, McBSP et traitement DSP absents."
+    },
+    {
+      "name": "FPGA genlock",
+      "level": "registers",
+      "scope": "Registres SPI, scratch et signaux de configuration synthetiques.",
+      "remaining": "Traitement du signal et execution du bitstream proprietaire."
+    },
+    {
+      "name": "FPGA IOB / ISP",
+      "level": "registers",
+      "scope": "Transport SPI et RAM de commande.",
+      "remaining": "Tensilica, XAUI, traitement video et encodeur J2K absents."
+    },
+    {
+      "name": "Capteur & CCDC",
+      "level": "synthetic",
+      "scope": "Mire 640x360, DMA RAW vers RAM ARM, stride et IRQ24.",
+      "remaining": "Capteur Dragon, YUV, entrelacement et MMU ISP incomplets."
+    },
+    {
+      "name": "Affichage & capture PC",
+      "level": "subset",
+      "scope": "Pixels PEG natifs, clavier/souris ; AVI MJPEG et photos JPEG sur PC.",
+      "remaining": "La video synthetique reste distincte de l'interface native du firmware."
+    },
+    {
+      "name": "DSP C64x+ / REDCODE",
+      "level": "missing",
+      "scope": "Aucun calcul DSP emule ; bootstrap UI specifique au profil d'exploration.",
+      "remaining": "Processeur, services et algorithmes proprietaires a reconstituer."
+    },
+    {
+      "name": "Enregistrement natif R3D",
+      "level": "missing",
+      "scope": "Le firmware conserve son propre code d'enregistrement.",
+      "remaining": "Chaine REC, encodeur, DMA IOB et stockage camera non valides ensemble."
+    },
+    {
+      "name": "Ventilation & alimentation",
+      "level": "missing",
+      "scope": "PMIC partiel ; aucune simulation de la ventilation ou des rails.",
+      "remaining": "Tachymetres, PWM, sequenceurs, batterie et ADC de puissance."
+    },
+    {
+      "name": "Ethernet & accessoires",
+      "level": "missing",
+      "scope": "UART de diagnostic ; aucun reseau ou objectif virtuel connecte.",
+      "remaining": "PHY/MAC, paquets, objectifs, moteurs et protocoles serie des accessoires."
+    },
+    {
+      "name": "HDMI / SDI / sorties video",
+      "level": "missing",
+      "scope": "Aucune sortie video physique emulee.",
+      "remaining": "EDID, transmetteurs, Gennum et pipeline de sortie."
+    }
+  ]
+}

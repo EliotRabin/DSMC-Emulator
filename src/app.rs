@@ -1,5 +1,6 @@
 //! Desktop controller. Presentation is split into screen, panels and theme modules.
 
+mod capture;
 mod panels;
 mod screen;
 mod settings;
@@ -22,6 +23,7 @@ use std::{
 enum Page {
     Screen,
     Hardware,
+    Capture,
     Console,
     Settings,
 }
@@ -30,6 +32,7 @@ struct Preview {
     output: PathBuf,
     firmware: Option<PathBuf>,
     requested: bool,
+    capture: bool,
 }
 
 pub struct App {
@@ -47,6 +50,10 @@ pub struct App {
     last_move: Instant,
     last_pos: Option<(i16, i16)>,
     preview: Option<Preview>,
+    capture: crate::capture::Capture,
+    capture_status: crate::capture::Status,
+    capture_texture: Option<egui::TextureHandle>,
+    capture_serial: u64,
 }
 
 impl App {
@@ -64,6 +71,7 @@ impl App {
             output,
             firmware: argument("--ui-firmware"),
             requested: false,
+            capture: arguments.iter().any(|argument| argument == "--ui-capture"),
         });
 
         let mut app = Self {
@@ -85,7 +93,16 @@ impl App {
             last_move: Instant::now(),
             last_pos: None,
             preview,
+            capture: crate::capture::Capture::new(),
+            capture_status: crate::capture::Status::default(),
+            capture_texture: None,
+            capture_serial: 0,
         };
+
+        if app.preview.as_ref().is_some_and(|preview| preview.capture) {
+            app.page = Page::Capture;
+            app.capture.send(crate::capture::Command::Preview(true));
+        }
 
         if let Some(path) = app
             .preview
@@ -144,14 +161,17 @@ impl App {
         self.notice = None;
         self.mouse_down = false;
         self.save_settings();
-        self.worker = Some(Worker::start(Config {
-            firmware: PathBuf::from(&self.settings.firmware),
-            assets: PathBuf::from(&self.settings.assets),
-            offline: self.settings.offline,
-            virtual_storage: self.settings.offline,
-            hardware: self.settings.hardware,
-            allow_unknown: false,
-        }));
+        self.worker = Some(Worker::start(
+            Config {
+                firmware: PathBuf::from(&self.settings.firmware),
+                assets: PathBuf::from(&self.settings.assets),
+                offline: self.settings.offline,
+                virtual_storage: self.settings.offline,
+                hardware: self.settings.hardware,
+                allow_unknown: false,
+            },
+            Some(self.capture.view.clone()),
+        ));
         self.running = true;
     }
 
@@ -239,8 +259,11 @@ impl App {
             let _ = std::fs::write(&preview.output, bytes);
             context.send_viewport_cmd(egui::ViewportCommand::Close);
         } else if !preview.requested {
-            let ready = preview.firmware.is_none()
-                || (self.texture.is_some() && self.report.instructions > 260_000_000);
+            let ready = if preview.capture {
+                self.capture_texture.is_some()
+            } else {
+                preview.firmware.is_none() || (self.texture.is_some() && self.report.ui_ready)
+            };
             if ready {
                 context.send_viewport_cmd(egui::ViewportCommand::Screenshot(Default::default()));
                 preview.requested = true;
@@ -266,6 +289,7 @@ impl App {
 impl eframe::App for App {
     fn update(&mut self, context: &egui::Context, _: &mut eframe::Frame) {
         self.synchronize_worker(context);
+        self.synchronize_capture(context);
         self.process_preview(context);
 
         title_bar::show(context);
@@ -291,6 +315,7 @@ impl eframe::App for App {
                         self.render_notices(ui);
                         match self.page {
                             Page::Screen => self.screen(ui),
+                            Page::Capture => self.capture_panel(ui),
                             Page::Hardware => self.hardware_panel(ui),
                             Page::Console => self.diagnostics_panel(ui),
                             Page::Settings => self.settings_panel(ui),
@@ -301,7 +326,11 @@ impl eframe::App for App {
 
         title_bar::resize_borders(context);
 
-        let refresh_ms = if self.running { 33 } else { 200 };
+        let refresh_ms = if self.running || self.capture_status.preview {
+            33
+        } else {
+            200
+        };
         context.request_repaint_after(Duration::from_millis(refresh_ms));
     }
 }
@@ -312,5 +341,6 @@ impl Drop for App {
             let _ = self.settings.save();
         }
         self.stop();
+        self.capture.stop();
     }
 }

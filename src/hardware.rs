@@ -1,4 +1,4 @@
-//! Native OMAP DMA/SPI/GPIO transport. Unattached SPI endpoints float high.
+//! OMAP DMA/SPI/GPIO transport with a software genlock FPGA endpoint.
 use crate::{
     devices::Interrupts,
     display::valid,
@@ -21,17 +21,26 @@ pub struct Summary {
     pub spi_words: u64,
     pub i2c_transactions: u64,
     pub i2c_nacks: u64,
+    pub missing_i2c_devices: Vec<(usize, u8, u64)>,
     pub onewire_resets: u64,
     pub virtual_board_count: usize,
     pub nand_programs: u64,
     pub nand_erases: u64,
     pub native_board_index: Vec<u8>,
+    pub genlock_fpga: crate::fpga::Summary,
+    pub capture: crate::ccdc::Summary,
+    pub iob: crate::iob::Summary,
+    pub coverage: &'static [crate::coverage::Component],
 }
 
 pub struct Hardware {
     i2c: I2c,
     nand: Nand,
     wire: OneWire,
+    genlock: crate::fpga::Genlock,
+    ccdc: crate::ccdc::Ccdc,
+    iob: crate::iob::Iob,
+    remote: [crate::fpga::Remote; 4],
     gpio: [BTreeMap<u32, u32>; 6],
     dma: [[u32; 24]; 32],
     progress: [Option<u32>; 32],
@@ -51,6 +60,10 @@ impl Hardware {
             i2c: I2c::new(),
             nand: Nand::new(),
             wire: OneWire::new(),
+            genlock: crate::fpga::Genlock::default(),
+            ccdc: crate::ccdc::Ccdc::default(),
+            iob: crate::iob::Iob::default(),
+            remote: std::array::from_fn(|_| crate::fpga::Remote::default()),
             gpio: std::array::from_fn(|_| BTreeMap::from([(0x34, u32::MAX), (0x3c, 0), (0x38, 0)])),
             dma: [[0; 24]; 32],
             progress: [None; 32],
@@ -66,6 +79,10 @@ impl Hardware {
     }
 
     pub fn summary(&self, c: Cpu) -> Summary {
+        let mut genlock_fpga = self.genlock.summary();
+        genlock_fpga.remote_reads = self.remote.iter().map(|remote| remote.reads).sum();
+        genlock_fpga.remote_writes = self.remote.iter().map(|remote| remote.writes).sum();
+        genlock_fpga.remote_unsupported = self.remote.iter().map(|remote| remote.unsupported).sum();
         Summary {
             dma_completed: self.completed,
             dma_bytes: self.bytes,
@@ -73,11 +90,16 @@ impl Hardware {
             spi_words: self.words,
             i2c_transactions: self.i2c.transactions,
             i2c_nacks: self.i2c.nacks,
+            missing_i2c_devices: self.i2c.missing_devices(),
             onewire_resets: self.wire.resets,
             virtual_board_count: 9,
             nand_programs: self.nand.programs,
             nand_erases: self.nand.erases,
             native_board_index: c.read(0x819be74c, 54).unwrap_or_default(),
+            genlock_fpga,
+            capture: self.ccdc.summary(),
+            iob: self.iob.summary(),
+            coverage: crate::coverage::COMPONENTS,
         }
     }
 
@@ -103,7 +125,7 @@ impl Hardware {
         }
     }
 
-    fn transfer(&mut self, p: usize, ch: usize, _v: u32) {
+    fn transfer(&mut self, p: usize, ch: usize, v: u32) {
         let conf = self.reg(p, 0x2c + ch as u32 * 0x14);
         let bits = ((conf >> 7) & 31) + 1;
         let mask = if bits == 32 {
@@ -112,8 +134,26 @@ impl Hardware {
             (1 << bits) - 1
         };
         self.words += 1;
+        let reply = if p == 2 && ch == 1 && bits == 16 {
+            self.genlock.transfer(v as u16) as u32
+        } else if p == 3 && ch == 0 && bits == 8 {
+            let select = self.gpio[2][&0x3c];
+            let target = (((select >> 12) & 1) << 1) | ((select >> 13) & 1);
+            u32::from(self.remote[target as usize].transfer(v as u8))
+        } else {
+            // Logical device 7: genlock configuration, selected by GPIO71/73/75.
+            let outputs = self.gpio[2][&0x3c];
+            if p == 1
+                && ch == 0
+                && bits == 8
+                && outputs & ((1 << 7) | (1 << 9) | (1 << 11)) == (1 << 7) | (1 << 9)
+            {
+                self.genlock.configure(v as u8);
+            }
+            mask
+        };
         if (conf >> 12) & 3 != 2 && self.rx[p][ch].len() < 4096 {
-            self.rx[p][ch].push_back(mask)
+            self.rx[p][ch].push_back(reply & mask)
         }
         *self.spi[p].entry(0x18).or_default() |= (1 << (ch * 4)) | 0x20000;
     }
@@ -131,6 +171,12 @@ impl Hardware {
         let page = a & !0xfff;
         let o = a & 0xfff;
         let mut answer = None;
+        if let Some(answer) = self.iob.access(write, a, size, v) {
+            return Some(answer);
+        }
+        if page == crate::ccdc::BASE {
+            return Some(self.ccdc.access(write, o, v, irq));
+        }
         if page == 0x480b2000 {
             return Some(self.wire.access(write, o, v, irq));
         }
@@ -156,6 +202,23 @@ impl Hardware {
                     0x38 => (r[&0x38] & r[&0x34]) | (r[&0x3c] & !r[&0x34]),
                     _ => *r.get(&o).unwrap_or(&0),
                 });
+            }
+            if i == 4 && write && self.gpio[4][&0x34] & (1 << 10) == 0 {
+                self.genlock.program(self.gpio[4][&0x3c] & (1 << 10) != 0);
+            }
+            if !write && o == 0x38 {
+                let signal = match i {
+                    4 => Some((21, self.genlock.done_high())),
+                    5 => Some((2, self.genlock.init_high())),
+                    _ => None,
+                };
+                if let Some((bit, high)) = signal {
+                    // External FPGA signals affect input pins only.
+                    if self.gpio[i][&0x34] & (1 << bit) != 0 {
+                        answer =
+                            answer.map(|value| (value & !(1 << bit)) | (u32::from(high) << bit));
+                    }
+                }
             }
             return Some(answer);
         }
@@ -228,6 +291,14 @@ impl Hardware {
                 answer = Some(1)
             } else if o == 0x10 && write && v & 2 != 0 {
                 self.spi[p].clear();
+                if p == 2 {
+                    self.genlock.deselect();
+                }
+                if p == 3 {
+                    for remote in &mut self.remote {
+                        remote.deselect();
+                    }
+                }
                 for f in &mut self.rx[p] {
                     f.clear()
                 }
@@ -239,6 +310,14 @@ impl Hardware {
                 }
             } else if let Some((ch, reg)) = Self::decode(o) {
                 if write {
+                    if p == 2 && ch == 1 && reg == 0 && v & 0x100000 == 0 {
+                        self.genlock.deselect();
+                    }
+                    if p == 3 && ch == 0 && reg == 0 && v & 0x100000 == 0 {
+                        for remote in &mut self.remote {
+                            remote.deselect();
+                        }
+                    }
                     self.spi[p].insert(o, v);
                     if reg == 0xc {
                         self.transfer(p, ch, v)
@@ -295,6 +374,14 @@ impl Hardware {
 
     fn ram(a: u32, n: usize) -> bool {
         valid(a, n) || (a >= 0x40200000 && a as u64 + n as u64 <= 0x40210000)
+    }
+
+    pub fn sensor_frame(&mut self, cpu: Cpu, frame: &crate::display::Frame, irq: &mut Interrupts) {
+        self.ccdc.receive(cpu, frame, irq);
+    }
+
+    pub fn busy_dma(&self) -> bool {
+        self.progress.iter().any(Option::is_some)
     }
 
     pub fn tick(&mut self, c: Cpu, irq: &mut Interrupts) {

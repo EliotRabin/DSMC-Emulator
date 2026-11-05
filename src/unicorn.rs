@@ -203,9 +203,13 @@ impl<'a> Cpu<'a> {
     }
 
     pub fn word(self, a: u32) -> u32 {
-        self.read(a, 4)
-            .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
-            .unwrap_or(0)
+        let mut bytes = [0; 4];
+        let result = unsafe { (self.api.read)(self.raw, a as u64, bytes.as_mut_ptr().cast(), 4) };
+        if result == 0 {
+            u32::from_le_bytes(bytes)
+        } else {
+            0
+        }
     }
 
     pub fn put(self, a: u32, v: u32) {

@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 pub const BASES: [u32; 3] = [0x48070000, 0x48072000, 0x48060000];
 struct Slave {
     regs: [u8; 256],
+    peripheral: Option<crate::board_devices::Peripheral>,
     pointer: u8,
     pending: bool,
     ports: usize,
@@ -17,6 +18,7 @@ impl Slave {
     fn new(bank: u8, ports: usize) -> Self {
         let mut s = Self {
             regs: [0; 256],
+            peripheral: None,
             pointer: 0,
             pending: true,
             ports,
@@ -38,7 +40,14 @@ impl Slave {
     fn write(&mut self, v: u8, n: u64) {
         if self.pending {
             self.pointer = v;
+            if let Some(peripheral) = &mut self.peripheral {
+                peripheral.select(v);
+            }
             self.pending = false;
+            return;
+        }
+        if let Some(peripheral) = &mut self.peripheral {
+            peripheral.write(v);
             return;
         }
         let r = self.pointer as usize;
@@ -82,6 +91,9 @@ impl Slave {
     }
 
     fn read(&mut self, n: u64) -> u8 {
+        if let Some(peripheral) = &mut self.peripheral {
+            return peripheral.read();
+        }
         let r = self.pointer as usize;
         self.pointer = self.pointer.wrapping_add(1);
         if r < self.ports {
@@ -210,6 +222,7 @@ pub struct I2c {
     devices: BTreeMap<(usize, u8), Slave>,
     pub transactions: u64,
     pub nacks: u64,
+    missing: BTreeMap<(usize, u8), u64>,
 }
 
 impl I2c {
@@ -220,12 +233,37 @@ impl I2c {
         }
         devices.insert((0, 0x20), Slave::new(0, 2));
         devices.insert((1, 0x38), Slave::new(0, 1));
+        for (bus, address, degrees) in [
+            (2, 0x4a, 35),
+            (1, 0x4b, 38),
+            (1, 0x4a, 32),
+            (1, 0x48, 36),
+            (1, 0x49, 34),
+        ] {
+            let mut slave = Slave::new(0, 0);
+            slave.peripheral = Some(crate::board_devices::Peripheral::temperature(degrees));
+            devices.insert((bus, address), slave);
+        }
+        let mut fan = Slave::new(0, 0);
+        fan.peripheral = Some(crate::board_devices::Peripheral::fan());
+        devices.insert((1, 0x2f), fan);
+        let mut adc = Slave::new(0, 0);
+        adc.peripheral = Some(crate::board_devices::Peripheral::audio_adc());
+        devices.insert((0, 0x19), adc);
         Self {
             controllers: std::array::from_fn(|_| Controller::default()),
             devices,
             transactions: 0,
             nacks: 0,
+            missing: BTreeMap::new(),
         }
+    }
+
+    pub fn missing_devices(&self) -> Vec<(usize, u8, u64)> {
+        self.missing
+            .iter()
+            .map(|((bus, address), count)| (*bus, *address, *count))
+            .collect()
     }
 
     pub fn access(
@@ -282,7 +320,8 @@ impl I2c {
                         } else {
                             s.status = 2;
                             s.regs.entry(o).and_modify(|v| *v &= !2);
-                            self.nacks += 1
+                            self.nacks += 1;
+                            *self.missing.entry((bus, s.slave)).or_default() += 1
                         }
                     }
                 }
@@ -333,6 +372,24 @@ mod tests {
         assert_eq!(&date(t)[..6], &[59, 59, 23, 29, 2, 24]);
         assert_eq!(&date(t + 1)[..6], &[0, 0, 0, 1, 3, 24]);
         assert!(epoch(2023, 2, 29, 0, 0, 0).is_none());
+    }
+
+    #[test]
+    fn controller_reads_virtual_temperature_and_reports_unconnected_slaves() {
+        let mut controller = I2c::new();
+        let mut irq = Interrupts::new(1000);
+        for (register, value) in [(0x2c, 0x4a), (0x18, 1), (0x24, 0x8603), (0x1c, 0)] {
+            controller.access(1, true, register, 1, value, 0, &mut irq);
+        }
+        controller.access(1, true, 0x18, 4, 2, 0, &mut irq);
+        controller.access(1, true, 0x24, 4, 0x8403, 0, &mut irq);
+        assert_eq!(
+            controller.access(1, false, 0x1c, 2, 0, 0, &mut irq),
+            Some(32)
+        );
+        controller.access(1, true, 0x2c, 4, 0x7f, 0, &mut irq);
+        controller.access(1, true, 0x24, 4, 0x8403, 0, &mut irq);
+        assert_eq!(controller.missing_devices(), [(1, 0x7f, 1)]);
     }
 
     #[test]

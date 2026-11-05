@@ -35,7 +35,7 @@ impl Display {
         }
     }
 
-    pub fn frame(&self, c: Cpu, serial: u64) -> Option<Frame> {
+    fn surface(&self, c: Cpu) -> Option<(u32, usize, usize)> {
         let screen = c.word(0x825de904);
         if !valid(screen, 0x38) || c.word(screen + 0x34) != 0x8102f4cc {
             return None;
@@ -65,7 +65,15 @@ impl Display {
                 best = Some((pixels, w, h));
             }
         }
-        let (p, w, h) = best?;
+        best
+    }
+
+    pub fn dimensions(&self, c: Cpu) -> Option<[usize; 2]> {
+        self.surface(c).map(|(_, width, height)| [width, height])
+    }
+
+    pub fn frame(&self, c: Cpu, serial: u64) -> Option<Frame> {
+        let (p, w, h) = self.surface(c)?;
         let mut rgba = c.read(p, w * h * 4).ok()?;
         for pixel in rgba.chunks_exact_mut(4) {
             pixel.swap(0, 2);

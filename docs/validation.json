@@ -6,7 +6,7 @@
   "firmware_sha256": "9abec2a4fe588cc523c9b87b9190729a67a1e750463b08b5e175d32309f29ef0",
   "full_camera_boot_verified": false,
   "unit_tests": {
-    "passed": 18,
+    "passed": 41,
     "failed": 0
   },
   "checks": {
@@ -16,7 +16,12 @@
     "native_desktop_screenshot": true,
     "native_desktop_frame_from_live_worker": true,
     "dark_theme_with_light_windows_mode": true,
-    "custom_title_bar_native_commands": true
+    "custom_title_bar_native_commands": true,
+    "idle_loop_register_counter_flags_equivalence": true,
+    "ui_ready_requires_finished_graphics_callbacks": true,
+    "notification_history_survives_console_limit": true,
+    "foreign_owner_graphics_lock_baseline": true,
+    "incomplete_notification_audit_rejected": true
   },
   "native_menu_check": {
     "profile": "lightweight offline inspection",
@@ -27,9 +32,9 @@
       "Display",
       "Escape to Settings"
     ],
-    "elapsed_seconds": 19.9116326,
-    "estimated_instructions": 283622723,
-    "estimated_mips": 14.244071729206173,
+    "elapsed_seconds": 17.212871,
+    "estimated_instructions": 257917990,
+    "estimated_mips": 14.508506338076897,
     "final_native_menu": [
       "Display",
       "Look",
@@ -39,12 +44,15 @@
       "Setup",
       "Maintenance"
     ],
-    "native_input_messages": 9,
+    "native_input_messages": 7,
     "notes": [
       "Fresh boot, no saved CPU state",
-      "Headless driver sends native pointer/key messages; OS keyboard focus is not under test",
-      "Native dialogs acknowledged through their own buttons"
-    ]
+      "Native Menu -> Settings -> Display -> Escape messages delivered",
+      "No firmware notification observed",
+      "Cooling HAL runs against virtual I2C peripherals before UI services start",
+      "Both graphics constructor callbacks completed"
+    ],
+    "idle_instructions_coalesced": 8184942
   },
   "native_hardware_check": {
     "ui_bootstrap_enabled": false,
@@ -111,13 +119,30 @@
       255,
       255
     ],
-    "elapsed_seconds": 1.6176257,
-    "estimated_instructions": 15820188
+    "elapsed_seconds": 1.9209570999999999,
+    "estimated_instructions": 15493594
   },
   "hardware_mode_ui": {
     "native_menu_settings_display_observed": true,
-    "escape_to_parent_verified": false,
-    "status": "experimental; missing camera services can block interaction",
+    "escape_to_parent_verified": true,
+    "elapsed_seconds": 29.8197368,
+    "instructions": 759652380,
+    "instruction_timer_period": 10000,
+    "firmware_notifications": [],
+    "bootstrap_callbacks": {
+      "controls": 1,
+      "controls_completed": 1,
+      "manager": 1,
+      "menu": 1,
+      "menu_completed": 1,
+      "monitor": 1,
+      "monitor_completed": 1,
+      "rear_io_enumerated": 1,
+      "rear_io_init": 1,
+      "rear_io_read": 1,
+      "rear_io_timeout": 1
+    },
+    "status": "Native inspection UI navigation verified; internal driver warnings and complete camera boot remain unresolved.",
     "full_camera_boot_verified": false
   },
   "performance_notes": "Local measurements, approximate block-based instruction counts. Different machines/profiles are not directly comparable.",
@@ -129,9 +154,208 @@
       "app/screen.rs",
       "app/panels.rs",
       "app/settings.rs",
-      "app/title_bar.rs"
+      "app/title_bar.rs",
+      "app/capture.rs"
     ],
     "rustfmt_max_width": 100,
     "window_chrome": "custom dark title bar, native minimize/maximize/restore/close, drag and resize handles"
+  },
+  "performance_comparison": {
+    "same_native_path": "Menu -> Settings -> Display -> Escape",
+    "before_seconds": 26.647346,
+    "after_seconds": 16.590025400000002,
+    "time_reduction_percent": 37.7,
+    "notes": "Local single runs; inspection bootstrap starts earlier and the driver uses UI readiness. Not a universal CPU throughput speedup."
+  },
+  "fpga_software": {
+    "genlock_spi_register_fixture_verified": true,
+    "genlock_full_native_boot_verified": false,
+    "remote_mailbox_protocol_unit_tests": true,
+    "unsupported_remote_execution_returns": "0x80000001",
+    "external_de10_lite_backend": false,
+    "video_processing": false
+  },
+  "capture_recording": {
+    "source": "synthetic moving bars, 640x360 at 24 fps",
+    "firmware_required_for_pc_recording": false,
+    "pc_container": "AVI/MJPEG, video only",
+    "ccdc_supported": "progressive monochrome RAW8 or unpacked RAW in guest RAM; stride, W1C, IRQ24",
+    "native_arm_mmio_capture_fixture_verified": true,
+    "full_red_firmware_capture_verified": false,
+    "native_rec_button_connected": false,
+    "r3d_redcode_encoder": false,
+    "camera_sata_ssd": false,
+    "recording_stop_and_shutdown_finalize_index": true,
+    "existing_output_never_overwritten": true,
+    "desktop_screenshot": true,
+    "independent_export_validation": {
+      "frames_decoded": 24,
+      "fps": 24.0,
+      "duration_seconds": 1.0,
+      "size": [
+        640,
+        360
+      ],
+      "codec": "MJPEG",
+      "index_valid": true,
+      "animation_verified": true,
+      "file_bytes": 343686,
+      "decoder": "Pillow JPEG, independent RIFF/index traversal"
+    },
+    "native_menu_regression_passed": true,
+    "native_hardware_initialization_regression_passed": true
+  },
+  "hardware_expansion": {
+    "full_hardware_emulated": false,
+    "native_gpmc_bank_to_sata_capability_fixture": true,
+    "ahci_identify_read_write_flush_reset_unit_tests": true,
+    "ahci_invalid_dma_lba_opcode_error_unit_tests": true,
+    "full_native_red_sata_driver_verified": false,
+    "iob_to_omap_sata_interrupts": false,
+    "temperature_i2c_transaction_test": true,
+    "audio_adc_paged_register_test": true,
+    "audio_pcm_stream": false,
+    "coverage_components": 19,
+    "native_menu_regression": true,
+    "native_boot_initializers_regression": true,
+    "extended_hardware_run": {
+      "instructions": 3001621333,
+      "elapsed_seconds": 59.1200415,
+      "ui_ready": true,
+      "iob_unmapped_accesses": 22283,
+      "missing_i2c_devices": [
+        [
+          0,
+          68,
+          10
+        ],
+        [
+          0,
+          69,
+          30
+        ],
+        [
+          0,
+          100,
+          5
+        ],
+        [
+          1,
+          33,
+          10
+        ],
+        [
+          1,
+          69,
+          5
+        ],
+        [
+          1,
+          97,
+          15
+        ],
+        [
+          1,
+          98,
+          5
+        ],
+        [
+          1,
+          101,
+          90
+        ],
+        [
+          1,
+          112,
+          5
+        ]
+      ],
+      "native_sata_commands_observed": 0,
+      "status": "Strict native inspection UI readiness and no user notifications; internal driver warnings remain."
+    },
+    "fan_pwm_tach_test": true,
+    "native_cooling_hal_return": 0
+  },
+  "startup_notification_audit": {
+    "lightweight": {
+      "instructions": 700725259,
+      "ui_ready": true,
+      "ui_ready_at": 236084082,
+      "elapsed_seconds": 27.981002,
+      "cooling_init_result": 0,
+      "fans": [
+        {
+          "installed": true,
+          "kind": 3,
+          "rated_rpm": 11000,
+          "driver_attached": true
+        },
+        {
+          "installed": true,
+          "kind": 7,
+          "rated_rpm": 0,
+          "driver_attached": true
+        }
+      ],
+      "firmware_notifications": [],
+      "notification_overflow": 0,
+      "bootstrap_callbacks": {
+        "controls": 1,
+        "controls_completed": 1,
+        "cooling": 1,
+        "manager": 1,
+        "monitor": 1,
+        "monitor_completed": 1,
+        "rear_io_enumerated": 1,
+        "rear_io_init": 1,
+        "rear_io_read": 1,
+        "rear_io_timeout": 1
+      },
+      "virtual_ticks": 666015,
+      "instruction_timer_period": 1000,
+      "dialogs_acknowledged": false,
+      "passed": true,
+      "native_warning_sites": 42
+    },
+    "hardware": {
+      "instructions": 3001621333,
+      "ui_ready": true,
+      "ui_ready_at": 736552733,
+      "elapsed_seconds": 59.1200415,
+      "cooling_init_result": 0,
+      "fans": [
+        {
+          "installed": true,
+          "kind": 3,
+          "rated_rpm": 11000,
+          "driver_attached": true
+        },
+        {
+          "installed": true,
+          "kind": 7,
+          "rated_rpm": 0,
+          "driver_attached": true
+        }
+      ],
+      "firmware_notifications": [],
+      "notification_overflow": 0,
+      "bootstrap_callbacks": {
+        "controls": 1,
+        "controls_completed": 1,
+        "manager": 1,
+        "monitor": 1,
+        "monitor_completed": 1,
+        "rear_io_enumerated": 1,
+        "rear_io_init": 1,
+        "rear_io_read": 1,
+        "rear_io_timeout": 1
+      },
+      "virtual_ticks": 299209,
+      "instruction_timer_period": 10000,
+      "dialogs_acknowledged": false,
+      "passed": true,
+      "native_warning_sites": 85
+    },
+    "scope": "No RCP notification or modal OK dialog in the observed window, with completed graphics callbacks and 50M+ instructions after UI readiness. Internal driver warnings remain; full camera boot is not verified."
   }
 }

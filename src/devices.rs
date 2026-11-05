@@ -11,6 +11,8 @@ pub struct Interrupts {
     #[serde(skip)]
     fiq: BTreeSet<usize>,
     pub levels: BTreeSet<usize>,
+    #[serde(skip)]
+    level_bits: [u32; 3],
     pub active: Option<usize>,
     pub deliveries: BTreeMap<usize, u64>,
     pub running: bool,
@@ -31,6 +33,7 @@ impl Interrupts {
             priorities: [0; 96],
             fiq: BTreeSet::new(),
             levels: BTreeSet::new(),
+            level_bits: [0; 3],
             active: None,
             deliveries: BTreeMap::new(),
             running: false,
@@ -45,9 +48,17 @@ impl Interrupts {
     }
 
     pub fn level(&mut self, n: usize, on: bool) {
+        assert!(n < 96, "OMAP interrupt index out of range");
+        let mask = 1 << (n % 32);
+        let bank = &mut self.level_bits[n / 32];
+        if (*bank & mask != 0) == on {
+            return;
+        }
         if on {
+            *bank |= mask;
             self.levels.insert(n);
         } else {
+            *bank &= !mask;
             self.levels.remove(&n);
         }
     }
@@ -70,13 +81,20 @@ impl Interrupts {
         if self.active.is_some() {
             return None;
         }
-        (0..96)
-            .filter(|i| {
-                (self.levels.contains(i) || self.software[i / 32] & (1 << (i % 32)) != 0)
-                    && self.masks[i / 32] & (1 << (i % 32)) == 0
-                    && !self.fiq.contains(i)
-            })
-            .min_by_key(|i| (self.priorities[*i], *i))
+        // Examine only asserted, unmasked sources instead of scanning all 96 lines.
+        let mut best = None;
+        for bank in 0..3 {
+            let mut pending = (self.level_bits[bank] | self.software[bank]) & !self.masks[bank];
+            while pending != 0 {
+                let index = bank * 32 + pending.trailing_zeros() as usize;
+                pending &= pending - 1;
+                if !self.fiq.contains(&index) {
+                    let candidate = (self.priorities[index], index);
+                    best = Some(best.map_or(candidate, |previous| candidate.min(previous)));
+                }
+            }
+        }
+        best.map(|(_, index)| index)
     }
 
     pub fn deliver(&mut self, c: Cpu, pc: u32, n: u64) {
@@ -285,6 +303,33 @@ mod tests {
         i.active = None;
         i.level(58, false);
         assert!(i.next_irq().is_none());
+    }
+
+    #[test]
+    fn bitmap_selection_matches_priority_reference() {
+        let mut irq = Interrupts::new(1000);
+        let mut random = 0x12345678u32;
+        for iteration in 0..512 {
+            random = random.wrapping_mul(1664525).wrapping_add(1013904223);
+            let index = random as usize % 96;
+            irq.level(index, random & 0x100 != 0);
+            irq.priorities[index] = ((random >> 16) & 63) as u8;
+            irq.masks[iteration % 3] = random;
+            irq.software[(iteration + 1) % 3] = random.rotate_left(7);
+            if random & 0x200 != 0 {
+                irq.fiq.insert(index);
+            } else {
+                irq.fiq.remove(&index);
+            }
+            let reference = (0..96)
+                .filter(|i| {
+                    (irq.levels.contains(i) || irq.software[i / 32] & (1 << (i % 32)) != 0)
+                        && irq.masks[i / 32] & (1 << (i % 32)) == 0
+                        && !irq.fiq.contains(i)
+                })
+                .min_by_key(|i| (irq.priorities[*i], *i));
+            assert_eq!(irq.next_irq(), reference);
+        }
     }
 
     #[test]

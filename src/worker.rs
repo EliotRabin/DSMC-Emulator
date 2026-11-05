@@ -34,7 +34,7 @@ pub struct Worker {
 }
 
 impl Worker {
-    pub fn start(config: Config) -> Self {
+    pub fn start(config: Config, source: Option<Arc<Mutex<crate::capture::View>>>) -> Self {
         let view = Arc::new(Mutex::new(View {
             running: true,
             ..Default::default()
@@ -55,6 +55,7 @@ impl Worker {
                     }
                 };
                 let mut paused = false;
+                let mut sensor_serial = 0;
                 let mut published = Instant::now() - Duration::from_secs(1);
                 while !quit.load(Ordering::Relaxed) {
                     while let Ok(command) = rx.try_recv() {
@@ -64,6 +65,20 @@ impl Worker {
                         }
                     }
                     if !paused {
+                        let frame = source.as_ref().and_then(|source| {
+                            let view = source.lock().unwrap_or_else(|error| error.into_inner());
+                            if view.status.preview {
+                                view.frame.clone()
+                            } else {
+                                None
+                            }
+                        });
+                        if let Some(frame) = frame {
+                            if frame.serial != sensor_serial {
+                                engine.sensor_frame(&frame);
+                                sensor_serial = frame.serial;
+                            }
+                        }
                         let _ = engine.run_slice(2_000_000, 30_000);
                     } else {
                         thread::sleep(Duration::from_millis(15))
@@ -141,14 +156,17 @@ mod tests {
     fn pause_resume_and_stop_preserve_the_live_machine() {
         let path = std::env::temp_dir().join(format!("dsmc-worker-{}.mem", std::process::id()));
         std::fs::write(&path, 0xeafffffeu32.to_le_bytes()).unwrap();
-        let mut w = Worker::start(Config {
-            firmware: path.clone(),
-            assets: std::env::temp_dir(),
-            offline: false,
-            virtual_storage: false,
-            hardware: false,
-            allow_unknown: true,
-        });
+        let mut w = Worker::start(
+            Config {
+                firmware: path.clone(),
+                assets: std::env::temp_dir(),
+                offline: false,
+                virtual_storage: false,
+                hardware: false,
+                allow_unknown: true,
+            },
+            None,
+        );
         wait(&w, |v| v.report.instructions > 0);
         assert!(w.send(Command::Pause(true)));
         wait(&w, |v| v.paused);

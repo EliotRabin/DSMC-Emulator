@@ -1,14 +1,22 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 mod app;
+mod avi;
+mod board_devices;
+mod capture;
+mod ccdc;
+mod coverage;
 mod devices;
 mod display;
 mod engine;
+mod fpga;
 mod hardware;
 mod i2c;
 mod input;
+mod iob;
 mod nand;
 mod offline;
 mod onewire;
+mod sata;
 mod storage;
 mod unicorn;
 mod worker;
@@ -18,6 +26,20 @@ use std::{
 };
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    if let Some(index) = args.iter().position(|arg| arg == "--capture-self-test") {
+        let result = args
+            .get(index + 1)
+            .ok_or_else(|| "--capture-self-test requires a new AVI path".to_string())
+            .and_then(|path| {
+                capture::export_test_clip(PathBuf::from(path)).map_err(|error| error.to_string())
+            });
+        if let Err(error) = result {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
     if args.iter().any(|a| a == "--headless" || a == "--self-test") {
         if let Err(e) = headless(&args) {
             eprintln!("{e}");
@@ -86,13 +108,14 @@ fn headless(args: &[String]) -> Result<(), String> {
         .parse()
         .map_err(|_| "invalid --timeout")?;
     let check_ui = args.iter().any(|s| s == "--check-ui");
+    let check_warnings = args.iter().any(|s| s == "--check-warnings");
     let mut phase = 0;
     let mut next_action = 0;
     let mut ack = std::collections::BTreeSet::new();
     let start = Instant::now();
     let mut last = Instant::now();
     while !machine.done()
-        && machine.report().instructions < max
+        && machine.instructions() < max
         && start.elapsed() < Duration::from_secs(timeout)
     {
         machine.run_slice(2_000_000, 100_000)?;
@@ -125,7 +148,7 @@ fn headless(args: &[String]) -> Result<(), String> {
                 break;
             }
         }
-        if check_ui {
+        if check_ui && !check_warnings {
             let r = machine.report();
             ack.retain(|a| {
                 r.controls
@@ -161,15 +184,7 @@ fn headless(args: &[String]) -> Result<(), String> {
                             eprintln!("Clicked native {label}, phase {phase}");
                             next_action = r.instructions + 8_000_000;
                         }
-                    } else if phase == 0
-                        && r.framebuffer.is_some()
-                        && r.instructions
-                            > if r.hardware_enabled {
-                                480_000_000
-                            } else {
-                                260_000_000
-                            }
-                    {
+                    } else if phase == 0 && r.framebuffer.is_some() && r.ui_ready {
                         machine.enqueue(input::Input::Menu);
                         phase = 1;
                         next_action = r.instructions + 2_000_000;
@@ -186,7 +201,11 @@ fn headless(args: &[String]) -> Result<(), String> {
                 }
             }
         }
-        if !check_ui && args.iter().any(|s| s == "--until-frame") && machine.frame().is_some() {
+        if !check_ui
+            && !check_warnings
+            && args.iter().any(|s| s == "--until-frame")
+            && machine.frame().is_some()
+        {
             break;
         }
     }
@@ -207,6 +226,31 @@ fn headless(args: &[String]) -> Result<(), String> {
     println!("{json}");
     if (check_ui || check_hardware) && phase != 5 {
         return Err(format!("Native check incomplete (phase {phase})"));
+    }
+    if check_warnings {
+        if !report.ui_ready {
+            return Err("Warning audit incomplete: native interface never became ready".into());
+        }
+        if report.instructions < max
+            || !report
+                .ui_ready_at
+                .is_some_and(|ready| report.instructions.saturating_sub(ready) >= 50_000_000)
+        {
+            return Err("Warning audit incomplete: instruction budget or post-UI observation window not reached".into());
+        }
+        if !report.firmware_notifications.is_empty() || report.notification_overflow > 0 {
+            return Err(format!(
+                "Firmware emitted {} notifications ({} overflow); none acknowledged",
+                report.firmware_notifications.len(),
+                report.notification_overflow
+            ));
+        }
+        if report.controls.iter().any(|control| control.label == "OK") {
+            return Err("Firmware has an unacknowledged modal dialog".into());
+        }
+        eprintln!(
+            "No firmware notification in the observed startup window; no dialog acknowledged"
+        );
     }
     if let Some(e) = report.error {
         return Err(e);

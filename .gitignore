@@ -10,3 +10,6 @@
 *.ppm
 *.log
 .env
+
+/recordings/
+*.avi

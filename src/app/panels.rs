@@ -26,6 +26,7 @@ impl App {
     fn navigation_tabs(&mut self, ui: &mut egui::Ui) {
         for (page, label) in [
             (Page::Screen, "Écran"),
+            (Page::Capture, "Capture"),
             (Page::Hardware, "Matériel"),
             (Page::Console, "Diagnostics"),
             (Page::Settings, "Réglages"),
@@ -72,54 +73,27 @@ impl App {
             "Des composants virtuels, avec un périmètre explicite pour chacun.",
         );
         egui::ScrollArea::vertical().show(ui, |ui| {
-            let components = [
-                (
-                    "ARM & interruptions",
-                    "Exécution du programme et vecteurs natifs.",
-                    "ACTIF",
-                    theme::BLUE,
-                ),
-                (
-                    "Interface native",
-                    "Surfaces du firmware, souris et clavier PEG.",
-                    "DISPONIBLE",
-                    theme::CYAN,
-                ),
-                (
-                    "Stockage de session",
-                    "Assets en lecture seule. Écritures conservées en RAM.",
-                    "VIRTUEL",
-                    theme::BLUE,
-                ),
-                (
-                    "Contrôleurs OMAP",
-                    "SDMA, SPI, I2C, GPIO, TPS65950 et RTC.",
-                    "PARTIEL",
-                    theme::AMBER,
-                ),
-                (
-                    "Cartes & mémoire",
-                    "NAND vierge et neuf identités EEPROM virtuelles.",
-                    "PARTIEL",
-                    theme::AMBER,
-                ),
-                (
-                    "Capture & enregistrement",
-                    "FPGA, DSP, capteur, flux audio et SSD restent absents.",
-                    "NON EMULE",
-                    theme::PINK,
-                ),
-            ];
-            for pair in components.chunks(2) {
+            for pair in crate::coverage::COMPONENTS.chunks(2) {
                 ui.columns(2, |columns| {
                     for (column, component) in columns.iter_mut().zip(pair) {
-                        let (title, detail, status, color) = component;
+                        let (status, color) = match component.level {
+                            crate::coverage::Level::Subset => ("PARTIEL", theme::BLUE),
+                            crate::coverage::Level::Registers => ("REGISTRES", theme::AMBER),
+                            crate::coverage::Level::Synthetic => ("SYNTHETIQUE", theme::CYAN),
+                            crate::coverage::Level::Missing => ("ABSENT", theme::PINK),
+                        };
                         theme::panel().show(column, |ui| {
                             ui.set_width(ui.available_width());
-                            theme::badge(ui, status, *color);
+                            theme::badge(ui, status, color);
                             ui.add_space(8.0);
-                            ui.label(RichText::new(*title).size(19.0));
-                            ui.label(RichText::new(*detail).size(13.0).color(theme::MUTED));
+                            ui.label(RichText::new(component.name).size(19.0));
+                            ui.label(RichText::new(component.scope).size(13.0));
+                            ui.add_space(5.0);
+                            ui.label(
+                                RichText::new(component.remaining)
+                                    .size(12.0)
+                                    .color(theme::MUTED),
+                            );
                         });
                     }
                 });
@@ -141,11 +115,30 @@ impl App {
                     "I2C : {} transactions / SPI : {} mots / 1-Wire : {} resets",
                     hardware.i2c_transactions, hardware.spi_words, hardware.onewire_resets,
                 ));
+                let fpga = &hardware.genlock_fpga;
+                ui.label(format!(
+                    "FPGA logiciel : {} lectures / {} ecritures genlock ; {} lectures / {} ecritures distantes ; {} acces non pris en charge",
+                    fpga.register_reads, fpga.register_writes, fpga.remote_reads, fpga.remote_writes, fpga.remote_unsupported,
+                ));
+                ui.label(format!("IOB : {} octets DDR alloues / {} acces a une region absente",
+                    hardware.iob.ddr_allocated_bytes, hardware.iob.unmapped_accesses));
+                for (index, disk) in hardware.iob.sata.iter().enumerate() {
+                    ui.label(format!("SSD virtuel {} : {} commandes / {} octets lus / {} ecrits / {} erreurs",
+                        index + 1, disk.commands, disk.read_bytes, disk.written_bytes, disk.errors));
+                    if let Some(error) = &disk.last_error { ui.label(RichText::new(error).color(theme::AMBER)); }
+                }
+                for (bus, address, count) in hardware.missing_i2c_devices.iter().take(12) {
+                    ui.label(RichText::new(format!("I2C{} : peripherique absent 0x{address:02x}, {count} NACK", bus + 1)).color(theme::AMBER));
+                }
                 for error in &hardware.dma_errors {
                     ui.label(RichText::new(error).size(12.0).color(theme::MUTED));
                 }
             });
         }
+        ui.label(format!(
+            "Attente ARM regroupee : {} millions d'instructions equivalentes",
+            self.report.idle_instructions / 1_000_000,
+        ));
         ui.add_space(10.0);
         ui.label(
             RichText::new(format!(

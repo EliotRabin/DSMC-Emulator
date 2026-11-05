@@ -17,18 +17,47 @@ pub struct MenuEntry {
 pub struct Offline {
     pub gate: bool,
     pub manager: bool,
+    pub cooling_launched: bool,
+    pub cooling_result: Option<u32>,
+    cooling_return: Option<u32>,
     pub monitor: bool,
     pub controls: bool,
     pub async_launch: bool,
     cleanup: BTreeMap<u32, (u32, u32)>,
     pub menu: Vec<MenuEntry>,
     pub replies: u64,
+    pub callback_counts: BTreeMap<String, u64>,
+    pub callback_threads: BTreeMap<String, u32>,
     pub manager_count: u32,
     pub manager_callers: Vec<u32>,
     pub stages: Vec<String>,
 }
 
 impl Offline {
+    pub fn ui_initialized(&self) -> bool {
+        self.callback_counts
+            .get("controls_completed")
+            .is_some_and(|count| *count > 0)
+            && self
+                .callback_counts
+                .get("monitor_completed")
+                .is_some_and(|count| *count > 0)
+    }
+
+    fn begin_graphics_call(&mut self, c: Cpu, callback: u32) {
+        let thread = c.word(0x810da120);
+        // Only inherit recursion owned by this task. A lock held by another
+        // task at entry must not become this callback's unlock baseline.
+        let baseline = if c.word(0x824d4300) == thread {
+            c.word(0x824d42fc)
+        } else {
+            0
+        };
+        self.cleanup.insert(thread, (baseline, c.reg(LR)));
+        c.put(callback + 4, 0xe1a00000);
+        c.set(LR, callback + 4);
+    }
+
     fn launch(&mut self, c: Cpu, callback: u32, pc: u32) {
         c.set(R0, callback);
         c.set(R0 + 1, 0);
@@ -45,6 +74,33 @@ impl Offline {
         hardware: bool,
         storage: Option<&Storage>,
     ) -> bool {
+        for (entry, name) in [
+            (0x4020f100, "manager"),
+            (0x4020f200, "monitor"),
+            (0x4020f300, "controls"),
+            (0x4020f600, "menu"),
+            (0x4020f700, "cooling"),
+            (0x807d69f4, "rear_io_init"),
+            (0x807d8d18, "rear_io_read"),
+            (0x807d6d90, "rear_io_timeout"),
+            (0x807d6dd0, "rear_io_enumerated"),
+        ] {
+            if pc == entry {
+                *self.callback_counts.entry(name.into()).or_default() += 1;
+                self.callback_threads
+                    .insert(name.into(), c.word(0x810da120));
+            }
+        }
+        if self.cooling_return == Some(pc) {
+            self.cooling_result = Some(c.reg(R0));
+            self.cooling_return = None;
+        }
+        if pc == 0x807b043c {
+            self.cooling_return = Some(c.reg(LR));
+        }
+        if pc == 0x4020f70c {
+            self.cooling_result = Some(c.reg(R0));
+        }
         if pc == 0x8009e1cc {
             self.manager_count += 1;
             self.manager_callers.push(c.reg(LR));
@@ -151,12 +207,13 @@ impl Offline {
             return true;
         }
         if pc == 0x4020f200 && self.monitor {
+            self.begin_graphics_call(c, pc);
             c.set(R0, c.word(0x824d3e40));
             c.set(R0 + 1, 0x4020f400);
             c.set(PC, 0x80819354);
             return true;
         }
-        if pc == 0x4020f304 || pc == 0x4020f604 {
+        if [0x4020f204, 0x4020f304, 0x4020f604].contains(&pc) {
             let thread = c.word(0x810da120);
             if let Some((baseline, ret)) = self.cleanup.get(&thread).copied() {
                 let count = c.word(0x824d42fc);
@@ -165,16 +222,19 @@ impl Offline {
                     c.set(PC, 0x80a9e0d0);
                 } else {
                     self.cleanup.remove(&thread);
+                    let name = match pc {
+                        0x4020f204 => "monitor_completed",
+                        0x4020f604 => "menu_completed",
+                        _ => "controls_completed",
+                    };
+                    *self.callback_counts.entry(name.into()).or_default() += 1;
                     c.set(PC, ret);
                 }
                 return true;
             }
         }
         if pc == 0x4020f600 || pc == 0x4020f300 {
-            self.cleanup
-                .insert(c.word(0x810da120), (c.word(0x824d42fc), c.reg(LR)));
-            c.put(pc + 4, 0xe1a00000);
-            c.set(LR, pc + 4);
+            self.begin_graphics_call(c, pc);
             let manager = c.word(0x824d3e40);
             c.set(R0, c.word(manager + 0x14));
             c.set(R0 + 1, if pc == 0x4020f600 { 1 } else { manager + 0x1c });
@@ -203,17 +263,33 @@ impl Offline {
             && c.word(0x819208cc) == 0x53454d41
             && c.word(0x819208dc) != 0
         {
+            // The UI inspection profile skips the board dependency graph. Run the
+            // original cooling HAL against its virtual I2C devices before services
+            // inspect fan identity. Do not alter the fan-fault notification setting.
+            if !hardware && !self.cooling_launched {
+                self.cooling_launched = true;
+                c.bytes(
+                    0x4020f700,
+                    &[0xe92d4010, 0xe59fc004, 0xe12fff3c, 0xe8bd8010, 0x807b043c],
+                );
+                self.launch(c, 0x4020f700, pc);
+                return true;
+            }
+            if self.cooling_result.is_none() {
+                return false;
+            }
             self.gate = true;
             c.set(R0, 0x819208cc);
             c.set(LR, pc);
             c.set(PC, 0x80c22240);
             return true;
         }
-        if n < 180000000 {
+        // The inspection profile used to wait for 180 million instructions even
+        // after storage and the native startup semaphore were ready. Launch at
+        // readiness instead; retain the conservative delay for hardware mode.
+        let earliest_launch = if hardware { 180_000_000 } else { 20_000_000 };
+        if n < earliest_launch || !self.gate {
             return false;
-        }
-        if hardware && !self.manager {
-            self.manager = true;
         }
         if !self.manager && c.word(0x81198398) == 0 {
             c.bytes(

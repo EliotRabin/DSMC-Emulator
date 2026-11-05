@@ -87,6 +87,10 @@ pub struct NativeInput {
 }
 
 impl NativeInput {
+    pub fn is_idle(&self) -> bool {
+        self.queue.is_empty() && self.flight.is_none()
+    }
+
     pub fn enqueue(&mut self, event: Input) {
         // Keep button/key edges, but replace a stale consecutive drag position.
         let previous_is_move = self.queue.back().is_some_and(|message| message[8] == 9);
