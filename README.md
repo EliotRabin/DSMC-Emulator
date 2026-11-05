@@ -282,6 +282,47 @@ native au lieu de delais fixes. Cette comparaison locale ne mesure donc pas une
 acceleration universelle du processeur ARM. Voir
 [la validation locale](docs/validation.json).
 
+## Alimentation et indicateurs virtuels
+
+Les adresses proviennent de la table I2C du firmware 6.3.106. Les pilotes natifs
+accedent maintenant a quatre sequenceurs : IOB (I2C1:0x70), ISP (I2C1:0x62),
+capteur (I2C1:0x65) et RSB (I2C0:0x64), avec une numerotation des bus depuis zero.
+Le modele PMBus conserve PAGE, OPERATION, VOUT_MODE, READ_VOUT et GPIO_SELECT /
+GPIO_CONFIG. Le modele UCD9081 expose les huit mesures ADC, les masques de
+commande observes dans le pilote et une fenetre de configuration RAM verrouillable.
+Les tensions nominales sont choisies dans les plages du firmware ; elles ne
+remplacent pas une calibration de camera. Aucun effacement/programmage flash,
+rampe analogique ou protocole PEC n'est revendique.
+
+Deux LTC4222 (I2C0:0x44, I2C1:0x45) conservent chacun deux commandes de puissance
+independantes. Etat FET, tension SOURCE et mesure SENSE suivent leur activation.
+Les charges virtuelles sont fixes : 12 V et 0,5 A par canal actif. Les temporisations,
+interruptions ALERT et defauts analogiques restent a implementer.
+
+Les controleurs LED principaux (I2C0:0x45, registre TCA6507) et SideSSD
+(I2C1:0x61, registre PCA9533) conservent selection, prescalers et PWM ; aucun
+rendu de forme d'onde optique n'est effectue. L'extension GPIO 16 bits I2C1:0x21
+est presente. Le multiplexeur I2C0:0x70 conserve seulement son octet de commande :
+le routage physique de ses branches n'est pas encore simule.
+
+Dans le profil d'exploration, les constructeurs des controles et du moniteur
+passent par la file d'appels natifs avec sauvegarde des registres et des flags.
+Leur lancement ne depend plus de la boucle de veille ARM : un pilote natif encore
+actif ne doit pas empecher a lui seul l'ouverture de l'interface. La preparation
+attend les objets PEG natifs et reporte les appels pendant les IRQ ou sections
+critiques du noyau. Le profil materiel attend egalement la fin de la decouverte
+native des modules arriere avant ces appels. Ce mecanisme reste propre au profil
+d'inspection.
+
+Les rapports materiels ajoutent `board_devices` (rails, sorties, modes LED et
+commandes non prises en charge), `power_sequencer_kinds` et les retours des HAL
+natifs d'alimentation et de LED. Un ACK I2C ne constitue pas une preuve de prise
+en charge de toutes les fonctions d'un composant.
+
+References de registres : [UCD9081](https://www.ti.com/lit/ds/symlink/ucd9081.pdf),
+[PMBus UCD90xxx](https://www.ti.com/lit/ug/slvu352c/slvu352c.pdf),
+[LTC4222](https://www.analog.com/media/en/technical-documentation/data-sheets/4222fb.pdf).
+
 ## Organisation
 
 - `src/unicorn.rs` : binding dynamique limite a l'API C Unicorn ; DLL conservee
@@ -292,6 +333,7 @@ acceleration universelle du processeur ARM. Voir
 - `src/offline.rs`, `input.rs`, `display.rs` : inspection native et profil explicite.
 - `src/iob.rs`, `sata.rs` : bus GPMC/DDR IOB et SSD AHCI volatile.
 - `src/board_devices.rs`, `coverage.rs` : sondes, ADC audio et inventaire des capacites.
+- `src/power.rs`, `hotswap.rs`, `indicators.rs` : alimentation et registres LED.
 - `src/capture.rs`, `avi.rs`, `ccdc.rs` : source synthetique, AVI/MJPEG et DMA CCDC.
 - `src/app/capture.rs` : controles de capture et enregistrement PC.
 - `src/worker.rs` : thread d'execution et publication de l'etat de session.

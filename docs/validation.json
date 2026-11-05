@@ -1,12 +1,12 @@
 {
-  "date": "2026-11-05",
+  "date": "2026-11-06",
   "platform": "Windows x64, x86_64-pc-windows-msvc",
   "rust": "1.98.0",
   "unicorn": "2.1.4 (native DLL, no Python runtime)",
   "firmware_sha256": "9abec2a4fe588cc523c9b87b9190729a67a1e750463b08b5e175d32309f29ef0",
   "full_camera_boot_verified": false,
   "unit_tests": {
-    "passed": 41,
+    "passed": 51,
     "failed": 0
   },
   "checks": {
@@ -21,7 +21,11 @@
     "ui_ready_requires_finished_graphics_callbacks": true,
     "notification_history_survives_console_limit": true,
     "foreign_owner_graphics_lock_baseline": true,
-    "incomplete_notification_audit_rejected": true
+    "incomplete_notification_audit_rejected": true,
+    "ui_readiness_timestamp_independent_of_idle_thread": true,
+    "bootstrap_trampoline_preserves_busy_task_registers_stack_flags": true,
+    "monitor_can_bootstrap_before_first_screen_and_controls_exist": true,
+    "hardware_navigation_waits_for_peg_input_queue": true
   },
   "native_menu_check": {
     "profile": "lightweight offline inspection",
@@ -32,9 +36,9 @@
       "Display",
       "Escape to Settings"
     ],
-    "elapsed_seconds": 17.212871,
-    "estimated_instructions": 257917990,
-    "estimated_mips": 14.508506338076897,
+    "elapsed_seconds": 30.4895439,
+    "estimated_instructions": 265723593,
+    "estimated_mips": 8.478041319601374,
     "final_native_menu": [
       "Display",
       "Look",
@@ -52,15 +56,17 @@
       "Cooling HAL runs against virtual I2C peripherals before UI services start",
       "Both graphics constructor callbacks completed"
     ],
-    "idle_instructions_coalesced": 8184942
+    "idle_instructions_coalesced": 7231980
   },
   "native_hardware_check": {
     "ui_bootstrap_enabled": false,
     "passed": true,
     "native_initialization_returns": {
+      "LED controllers": true,
       "NAND": true,
       "TPS65950": true,
-      "brain GPIO expander": true
+      "brain GPIO expander": true,
+      "power sequencers": true
     },
     "virtual_board_count": 9,
     "native_board_index": [
@@ -119,14 +125,14 @@
       255,
       255
     ],
-    "elapsed_seconds": 1.9209570999999999,
-    "estimated_instructions": 15493594
+    "elapsed_seconds": 2.89064,
+    "estimated_instructions": 19728569
   },
   "hardware_mode_ui": {
     "native_menu_settings_display_observed": true,
     "escape_to_parent_verified": true,
-    "elapsed_seconds": 29.8197368,
-    "instructions": 759652380,
+    "elapsed_seconds": 32.0560829,
+    "instructions": 774041214,
     "instruction_timer_period": 10000,
     "firmware_notifications": [],
     "bootstrap_callbacks": {
@@ -143,7 +149,8 @@
       "rear_io_timeout": 1
     },
     "status": "Native inspection UI navigation verified; internal driver warnings and complete camera boot remain unresolved.",
-    "full_camera_boot_verified": false
+    "full_camera_boot_verified": false,
+    "native_input_messages": 7
   },
   "performance_notes": "Local measurements, approximate block-based instruction counts. Different machines/profiles are not directly comparable.",
   "presentation": {
@@ -219,57 +226,11 @@
     "native_menu_regression": true,
     "native_boot_initializers_regression": true,
     "extended_hardware_run": {
-      "instructions": 3001621333,
-      "elapsed_seconds": 59.1200415,
+      "instructions": 1001638272,
+      "elapsed_seconds": 34.8221863,
       "ui_ready": true,
-      "iob_unmapped_accesses": 22283,
-      "missing_i2c_devices": [
-        [
-          0,
-          68,
-          10
-        ],
-        [
-          0,
-          69,
-          30
-        ],
-        [
-          0,
-          100,
-          5
-        ],
-        [
-          1,
-          33,
-          10
-        ],
-        [
-          1,
-          69,
-          5
-        ],
-        [
-          1,
-          97,
-          15
-        ],
-        [
-          1,
-          98,
-          5
-        ],
-        [
-          1,
-          101,
-          90
-        ],
-        [
-          1,
-          112,
-          5
-        ]
-      ],
+      "iob_unmapped_accesses": 22299,
+      "missing_i2c_devices": [],
       "native_sata_commands_observed": 0,
       "status": "Strict native inspection UI readiness and no user notifications; internal driver warnings remain."
     },
@@ -318,10 +279,10 @@
       "native_warning_sites": 42
     },
     "hardware": {
-      "instructions": 3001621333,
+      "instructions": 1001638272,
       "ui_ready": true,
-      "ui_ready_at": 736552733,
-      "elapsed_seconds": 59.1200415,
+      "ui_ready_at": 551503219,
+      "elapsed_seconds": 34.8221863,
       "cooling_init_result": 0,
       "fans": [
         {
@@ -350,12 +311,418 @@
         "rear_io_read": 1,
         "rear_io_timeout": 1
       },
-      "virtual_ticks": 299209,
+      "virtual_ticks": 99538,
       "instruction_timer_period": 10000,
       "dialogs_acknowledged": false,
       "passed": true,
-      "native_warning_sites": 85
+      "native_warning_sites": 71,
+      "native_checks": {
+        "LED controllers": true,
+        "NAND": true,
+        "TPS65950": true,
+        "brain GPIO expander": true,
+        "power sequencers": true
+      },
+      "missing_i2c_devices": []
     },
     "scope": "No RCP notification or modal OK dialog in the observed window, with completed graphics callbacks and 50M+ instructions after UI readiness. Internal driver warnings remain; full camera boot is not verified."
+  },
+  "power_and_indicators": {
+    "full_analog_emulation": false,
+    "models": [
+      "UCD9081 register subset",
+      "UCD9090 PMBus subset",
+      "LTC4222 register subset",
+      "TCA6507 registers",
+      "PCA9533 registers"
+    ],
+    "native_hal_power_success": true,
+    "native_led_controller_success": true,
+    "native_init_i2c_nacks": 0,
+    "nominal_voltages_synthetic": true,
+    "physical_mux_branch_routing": false,
+    "fault_injection_and_alert_interrupts": false,
+    "unit_checks": [
+      "PMBus repeated start, little-endian words, page and broadcast shutdown",
+      "GPIO apply/status and pin independence",
+      "UCD9081 big-endian ADC and configuration RAM unlock",
+      "LTC4222 per-channel switching, status and ADC",
+      "LED auto-increment, PWM registers and mode bitplanes"
+    ],
+    "initial_extended_audit": {
+      "passed": false,
+      "reason": "Timeout before requested 3 billion instructions; UI ready but idle-dependent readiness timestamp absent. Timestamp observation subsequently moved to slice completion.",
+      "observed_instructions": 716090157,
+      "observed_notifications": []
+    },
+    "remaining_native_failures": [
+      "IOB DDR and ISP system control",
+      "FPGA programming and native processing",
+      "DSP/DSPLINK",
+      "SATA PHY",
+      "Ethernet",
+      "Calibration data"
+    ],
+    "native_menu_path_verified": true,
+    "short_final_audit": {
+      "passed": false,
+      "reason": "Requested 1 billion instructions reached before graphics constructor callbacks completed; no native interface readiness claim for this run.",
+      "instructions": 1000058390,
+      "elapsed_seconds": 63.418741,
+      "firmware_notifications": []
+    },
+    "extended_idle_starvation_reproducer": {
+      "passed": false,
+      "instructions": 3000487398,
+      "elapsed_seconds": 209.8359858,
+      "ui_ready": false,
+      "bootstrap_callbacks": {
+        "manager": 1,
+        "rear_io_enumerated": 1,
+        "rear_io_init": 1,
+        "rear_io_read": 1,
+        "rear_io_timeout": 1
+      },
+      "firmware_notifications": [],
+      "cause": "Graphics bootstrap scheduling required the RTOS idle loop; busy native tasks prevented launching controls and monitor."
+    },
+    "bootstrap_dependency_correction": "Native constructors are queued through the context-preserving trampoline. Bootstrap jobs do not require the PEG queue they may create, and the monitor can be queued before the first screen/control object exists. Hardware mode also waits for the native rear-enumeration event; the navigation harness waits until PEG is suspended on its input queue before posting another click.",
+    "final_startup_audit_passed": true,
+    "final_startup_instruction_budget": 1000000000,
+    "final_i2c_nacks": 0,
+    "final_board_devices": [
+      {
+        "address": 68,
+        "bus": 0,
+        "state": {
+          "enabled": [
+            true,
+            true
+          ],
+          "milliamps": [
+            500,
+            500
+          ],
+          "millivolts": [
+            12000,
+            12000
+          ],
+          "model": "LTC4222 register subset",
+          "unsupported": 0
+        }
+      },
+      {
+        "address": 69,
+        "bus": 0,
+        "state": {
+          "model": "TCA6507 register subset",
+          "modes": [
+            4,
+            4,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "registers": [
+            0,
+            0,
+            3,
+            19,
+            19,
+            19,
+            19,
+            19,
+            0,
+            0,
+            0
+          ],
+          "unsupported": 0
+        }
+      },
+      {
+        "address": 100,
+        "bus": 0,
+        "state": {
+          "enabled": [
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true
+          ],
+          "gpio": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "millivolts": [
+            1800,
+            1800,
+            1200,
+            2500,
+            3300,
+            3300,
+            2500,
+            0
+          ],
+          "model": "UCD9081",
+          "unsupported": {}
+        }
+      },
+      {
+        "address": 112,
+        "bus": 0,
+        "state": {
+          "control": 0,
+          "model": "I2C mux control only"
+        }
+      },
+      {
+        "address": 69,
+        "bus": 1,
+        "state": {
+          "enabled": [
+            true,
+            true
+          ],
+          "milliamps": [
+            500,
+            500
+          ],
+          "millivolts": [
+            12000,
+            12000
+          ],
+          "model": "LTC4222 register subset",
+          "unsupported": 0
+        }
+      },
+      {
+        "address": 97,
+        "bus": 1,
+        "state": {
+          "model": "PCA9533 register subset",
+          "modes": [
+            1,
+            1,
+            3,
+            3
+          ],
+          "registers": [
+            0,
+            21,
+            152,
+            10,
+            64,
+            245
+          ],
+          "unsupported": 0
+        }
+      },
+      {
+        "address": 98,
+        "bus": 1,
+        "state": {
+          "enabled": [
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true
+          ],
+          "gpio": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "millivolts": [
+            1650,
+            2500,
+            1800,
+            1500,
+            1000,
+            3300,
+            1800,
+            0
+          ],
+          "model": "UCD9081",
+          "unsupported": {}
+        }
+      },
+      {
+        "address": 101,
+        "bus": 1,
+        "state": {
+          "enabled": [
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true
+          ],
+          "gpio": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            7,
+            7,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "millivolts": [
+            5000,
+            1800,
+            4500,
+            2400,
+            400,
+            1800,
+            5000,
+            4000,
+            0,
+            1800
+          ],
+          "model": "UCD9090 PMBus subset",
+          "unsupported": {}
+        }
+      },
+      {
+        "address": 112,
+        "bus": 1,
+        "state": {
+          "enabled": [
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true
+          ],
+          "gpio": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "millivolts": [
+            1000,
+            1000,
+            1375,
+            1500,
+            1500,
+            1000,
+            1500,
+            875,
+            1750,
+            0
+          ],
+          "model": "UCD9090 PMBus subset",
+          "unsupported": {}
+        }
+      }
+    ]
   }
 }

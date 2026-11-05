@@ -13,6 +13,7 @@ const MESSAGE_SIZE: usize = 64;
 const MAX_PENDING: usize = 64;
 const RETRY_DELAY: u64 = 100_000;
 const MENU_EVENT: u32 = 0x5006;
+const CALLBACK_EVENT: u32 = 0x80005006; // Host-only queue item, never posted to PEG.
 
 // RED 6.3.106 native addresses. The scratch area is reserved in IRAM.
 const TRAMPOLINE: u32 = 0x4020fb00;
@@ -91,6 +92,17 @@ impl NativeInput {
         self.queue.is_empty() && self.flight.is_none()
     }
 
+    pub fn enqueue_callback(&mut self, callback: u32) -> bool {
+        if self.queue.len() >= MAX_PENDING {
+            return false;
+        }
+        let mut message = [0; MESSAGE_SIZE];
+        message[8..12].copy_from_slice(&CALLBACK_EVENT.to_le_bytes());
+        message[12..16].copy_from_slice(&callback.to_le_bytes());
+        self.queue.push_front(message);
+        true
+    }
+
     pub fn enqueue(&mut self, event: Input) {
         // Keep button/key edges, but replace a stale consecutive drag position.
         let previous_is_move = self.queue.back().is_some_and(|message| message[8] == 9);
@@ -116,17 +128,23 @@ impl NativeInput {
         if self.queue.is_empty() || instructions < self.retry_after {
             return false;
         }
-        let Some(thread) = Self::eligible_thread(cpu, pc) else {
-            return false;
-        };
         let message = *self.queue.front().expect("pending event checked above");
         let is_menu = message_kind(&message) == MENU_EVENT;
+        let is_callback = message_kind(&message) == CALLBACK_EVENT;
+        let Some(thread) = Self::eligible_thread(cpu, pc, is_callback) else {
+            return false;
+        };
         let sp = cpu.reg(SP);
-        if !Self::has_stack_space(cpu, thread, sp, is_menu) {
+        if !Self::has_stack_space(cpu, thread, sp, is_menu || is_callback) {
             return false;
         }
 
-        let (target, argument0, argument1) = if is_menu && offline {
+        let (target, argument0, argument1) = if is_callback {
+            *async_launch = true;
+            let callback =
+                u32::from_le_bytes(message[12..16].try_into().expect("callback address"));
+            (ASYNC_RUN, callback, 0)
+        } else if is_menu && offline {
             let manager = cpu.word(UI_MANAGER);
             if manager == 0 || cpu.word(manager + 0x14) == 0 {
                 return false;
@@ -164,13 +182,15 @@ impl NativeInput {
             .expect("active call checked by dispatch");
         if pc == CALL_RETURN {
             if cpu.reg(R0) != 0 {
-                self.delivered += 1;
+                if message_kind(&flight.message) != CALLBACK_EVENT {
+                    self.delivered += 1;
+                }
             } else {
                 self.queue.push_front(flight.message);
                 self.rejected += 1;
                 self.retry_after = instructions + RETRY_DELAY;
             }
-            if message_kind(&flight.message) == MENU_EVENT {
+            if [MENU_EVENT, CALLBACK_EVENT].contains(&message_kind(&flight.message)) {
                 *async_launch = false;
             }
             cpu.set(PC, RESTORE_CALLER);
@@ -188,7 +208,7 @@ impl NativeInput {
         false
     }
 
-    fn eligible_thread(cpu: Cpu, pc: u32) -> Option<u32> {
+    fn eligible_thread(cpu: Cpu, pc: u32, bootstrap: bool) -> Option<u32> {
         if !(0x80000000..0x810d0000).contains(&pc) {
             return None;
         }
@@ -207,7 +227,8 @@ impl NativeInput {
         let thread_ready =
             valid(thread, 0x34) && cpu.word(thread) == THREAD_MAGIC && thread != TIMER_THREAD;
         let queue_ready = cpu.word(PEG_THREAD) == THREAD_MAGIC && cpu.word(PEG_RECEIVER) != 0;
-        (thread_ready && queue_ready).then_some(thread)
+        // Bootstrap constructors may create the PEG queue themselves.
+        (thread_ready && (bootstrap || queue_ready)).then_some(thread)
     }
 
     fn has_stack_space(cpu: Cpu, thread: u32, sp: u32, is_menu: bool) -> bool {

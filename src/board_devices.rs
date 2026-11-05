@@ -3,6 +3,10 @@
 //! These models do not supply calibration data or an audio sample stream.
 
 pub enum Peripheral {
+    HotSwap(crate::hotswap::HotSwap),
+    Power(crate::power::Sequencer),
+    Indicators(crate::indicators::Indicators),
+    Mux(u8),
     Temperature {
         registers: [u16; 4],
         pointer: u8,
@@ -20,6 +24,18 @@ pub enum Peripheral {
 }
 
 impl Peripheral {
+    pub fn diagnostic(&self) -> Option<serde_json::Value> {
+        match self {
+            Self::HotSwap(device) => serde_json::to_value(device.summary()).ok(),
+            Self::Power(device) => serde_json::to_value(device.summary()).ok(),
+            Self::Indicators(device) => serde_json::to_value(device.summary()).ok(),
+            Self::Mux(control) => {
+                Some(serde_json::json!({"model": "I2C mux control only", "control": control}))
+            }
+            _ => None,
+        }
+    }
+
     pub fn temperature(degrees: i16) -> Self {
         Self::Temperature {
             registers: [(degrees * 256) as u16, 0x0080, 0x4b00, 0x5000],
@@ -47,6 +63,10 @@ impl Peripheral {
 
     pub fn select(&mut self, address: u8) {
         match self {
+            Self::HotSwap(device) => device.select(address),
+            Self::Power(device) => device.select(address),
+            Self::Indicators(device) => device.select(address),
+            Self::Mux(control) => *control = address,
             Self::Temperature { pointer, byte, .. } => {
                 *pointer = address;
                 *byte = 0;
@@ -57,6 +77,10 @@ impl Peripheral {
 
     pub fn write(&mut self, value: u8) {
         match self {
+            Self::HotSwap(device) => device.write(value),
+            Self::Power(device) => device.write(value),
+            Self::Indicators(device) => device.write(value),
+            Self::Mux(_) => {}
             Self::Fan { registers, pointer } => {
                 // Tach registers are read-only. PWM 0..120 corresponds to 0..100%.
                 if ![0x20, 0x21].contains(pointer) {
@@ -96,6 +120,10 @@ impl Peripheral {
 
     pub fn read(&mut self) -> u8 {
         match self {
+            Self::HotSwap(device) => device.read(),
+            Self::Power(device) => device.read(),
+            Self::Indicators(device) => device.read(),
+            Self::Mux(control) => *control,
             Self::Fan { registers, pointer } => {
                 let value = match *pointer {
                     0x20 | 0x21 => {

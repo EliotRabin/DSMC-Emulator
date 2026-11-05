@@ -250,6 +250,55 @@ impl I2c {
         let mut adc = Slave::new(0, 0);
         adc.peripheral = Some(crate::board_devices::Peripheral::audio_adc());
         devices.insert((0, 0x19), adc);
+        devices.insert((1, 0x21), Slave::new(0, 2));
+        use crate::board_devices::Peripheral;
+        for (bus, address, legacy, nominal) in [
+            (
+                1,
+                0x70,
+                false,
+                vec![1000, 1000, 1375, 1500, 1500, 1000, 1500, 875, 1750, 0],
+            ),
+            (
+                1,
+                0x62,
+                true,
+                vec![1650, 2500, 1800, 1500, 1000, 3300, 1800, 0],
+            ),
+            (
+                1,
+                0x65,
+                false,
+                vec![5000, 1800, 4500, 2400, 400, 1800, 5000, 4000, 0, 1800],
+            ),
+            (
+                0,
+                0x64,
+                true,
+                vec![1800, 1800, 1200, 2500, 3300, 3300, 2500, 0],
+            ),
+        ] {
+            let mut slave = Slave::new(0, 0);
+            slave.peripheral = Some(Peripheral::Power(crate::power::Sequencer::new(
+                legacy, &nominal,
+            )));
+            devices.insert((bus, address), slave);
+        }
+        for (bus, address, seven) in [(0, 0x45, true), (1, 0x61, false)] {
+            let mut slave = Slave::new(0, 0);
+            slave.peripheral = Some(Peripheral::Indicators(crate::indicators::Indicators::new(
+                seven,
+            )));
+            devices.insert((bus, address), slave);
+        }
+        for (bus, address) in [(0, 0x44), (1, 0x45)] {
+            let mut slave = Slave::new(0, 0);
+            slave.peripheral = Some(Peripheral::HotSwap(crate::hotswap::HotSwap::new()));
+            devices.insert((bus, address), slave);
+        }
+        let mut mux = Slave::new(0, 0);
+        mux.peripheral = Some(Peripheral::Mux(0));
+        devices.insert((0, 0x70), mux);
         Self {
             controllers: std::array::from_fn(|_| Controller::default()),
             devices,
@@ -257,6 +306,16 @@ impl I2c {
             nacks: 0,
             missing: BTreeMap::new(),
         }
+    }
+
+    pub fn board_devices(&self) -> Vec<serde_json::Value> {
+        self.devices
+            .iter()
+            .filter_map(|((bus, address), slave)| {
+                let state = slave.peripheral.as_ref()?.diagnostic()?;
+                Some(serde_json::json!({"bus": bus, "address": address, "state": state}))
+            })
+            .collect()
     }
 
     pub fn missing_devices(&self) -> Vec<(usize, u8, u64)> {
@@ -390,6 +449,36 @@ mod tests {
         controller.access(1, true, 0x2c, 4, 0x7f, 0, &mut irq);
         controller.access(1, true, 0x24, 4, 0x8403, 0, &mut irq);
         assert_eq!(controller.missing_devices(), [(1, 0x7f, 1)]);
+    }
+
+    #[test]
+    fn pmbus_repeated_start_reads_word_and_broadcast_off_through_fifo() {
+        let mut bus = I2c::new();
+        let mut irq = Interrupts::new(1000);
+        let mut write = |bus: &mut I2c, bytes: &[u8]| {
+            bus.access(1, true, 0x2c, 4, 0x70, 0, &mut irq);
+            bus.access(1, true, 0x18, 4, bytes.len() as u32, 0, &mut irq);
+            bus.access(1, true, 0x24, 4, 0x8603, 0, &mut irq);
+            for byte in bytes {
+                bus.access(1, true, 0x1c, 1, u32::from(*byte), 0, &mut irq);
+            }
+        };
+        write(&mut bus, &[0, 0xff]);
+        write(&mut bus, &[1, 0]);
+        write(&mut bus, &[0, 0]);
+        write(&mut bus, &[1, 0x80]);
+        write(&mut bus, &[0x8b]);
+        bus.access(1, true, 0x18, 4, 2, 0, &mut irq);
+        bus.access(1, true, 0x24, 4, 0x8403, 0, &mut irq);
+        assert_eq!(bus.access(1, false, 0x1c, 2, 0, 0, &mut irq), Some(512));
+        let state = bus
+            .board_devices()
+            .into_iter()
+            .find(|device| device["bus"] == 1 && device["address"] == 0x70)
+            .unwrap();
+        assert_eq!(state["state"]["millivolts"][0], 1000);
+        assert_eq!(state["state"]["millivolts"][1], 0);
+        assert_eq!(bus.nacks, 0);
     }
 
     #[test]

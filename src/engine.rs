@@ -79,6 +79,8 @@ pub struct Report {
     pub virtual_ticks: u32,
     pub input_delivered: u64,
     pub native_manager_count: u32,
+    pub native_manager_callers: Vec<u32>,
+    pub bootstrap_objects: BTreeMap<String, u32>,
     pub bootstrap_callbacks: BTreeMap<String, u64>,
     pub bootstrap_threads: BTreeMap<String, BootstrapThread>,
     pub graphics_lock_depth: u32,
@@ -267,6 +269,20 @@ impl Engine {
             self.state.fault = Some(e.clone());
             return Err(e);
         }
+        if self.state.config.offline {
+            self.state.offline.queue_graphics_bootstrap(
+                cpu,
+                &mut self.state.input,
+                self.state.config.hardware,
+            );
+        }
+        // A busy RTOS can render the UI without ever entering its idle loop.
+        if self.state.ui_ready_at.is_none()
+            && self.state.offline.ui_initialized()
+            && self.state.display.dimensions(cpu).is_some()
+        {
+            self.state.ui_ready_at = Some(self.state.instructions);
+        }
         Ok(())
     }
 
@@ -276,6 +292,10 @@ impl Engine {
 
     pub fn done(&self) -> bool {
         self.state.reason.is_some()
+    }
+
+    pub fn input_is_idle(&self) -> bool {
+        self.state.input.is_idle()
     }
 
     pub fn enqueue(&mut self, i: Input) {
@@ -308,6 +328,7 @@ impl Engine {
         let mut threads = state.offline.callback_threads.clone();
         threads.insert("graphics_lock_owner".into(), cpu.word(0x824d4300));
         threads.insert("rear_io_read_thread".into(), 0x821c357c);
+        threads.insert("peg_thread".into(), 0x824d63d8);
         Report {
             rear_enumeration_flags: cpu.word(0x821be7c8),
             rear_enumeration_pending: cpu.word(0x810b18e4) & 255 != 0,
@@ -335,6 +356,33 @@ impl Engine {
             virtual_ticks: cpu.word(0x810dab34),
             input_delivered: state.input.delivered,
             native_manager_count: state.offline.manager_count,
+            native_manager_callers: state.offline.manager_callers.clone(),
+            bootstrap_objects: [
+                ("device_manager", 0x824d3e40),
+                ("display", 0x825de904),
+                ("peg_class", 0x825de908),
+                ("peg_queue", 0x825de90c),
+                ("manager_task", 0x81198398),
+            ]
+            .into_iter()
+            .map(|(name, address)| (name.into(), cpu.word(address)))
+            .chain([
+                (
+                    "record".into(),
+                    cpu.word(cpu.word(0x824d3e40).wrapping_add(0x14)),
+                ),
+                (
+                    "record_class".into(),
+                    cpu.word(
+                        cpu.word(cpu.word(0x824d3e40).wrapping_add(0x14))
+                            .wrapping_add(0x34),
+                    ),
+                ),
+                ("gate".into(), u32::from(state.offline.gate)),
+                ("controls_queued".into(), u32::from(state.offline.controls)),
+                ("monitor_queued".into(), u32::from(state.offline.monitor)),
+            ])
+            .collect(),
             bootstrap_callbacks: state.offline.callback_counts.clone(),
             bootstrap_threads: threads
                 .iter()
@@ -450,13 +498,6 @@ impl State {
                 return;
             }
         }
-        if pc == 0x8001104c
-            && self.ui_ready_at.is_none()
-            && self.offline.ui_initialized()
-            && self.display.dimensions(cpu).is_some()
-        {
-            self.ui_ready_at = Some(self.instructions);
-        }
         self.coalesce_idle(cpu, pc);
         self.observe_boot_stage(pc);
         self.tick_interrupts(cpu, pc);
@@ -502,6 +543,8 @@ impl State {
                 (0x8058b8f8, "TPS65950", 1),
                 (0x807b0e64, "brain GPIO expander", 0),
                 (0x805751d0, "NAND", 1),
+                (0x80680c80, "power sequencers", 0),
+                (0x80583d14, "LED controllers", 1),
             ] {
                 if pc == address {
                     self.initialization_returns
@@ -1029,7 +1072,37 @@ mod tests {
     }
 
     #[test]
+    fn monitor_bootstrap_can_create_the_first_screen_before_controls_exist() {
+        let mut e = fixture(&[0xeafffffe]);
+        let cpu = e.handle.cpu();
+        cpu.put(0x824d3e40, 0x83460000);
+        cpu.put(0x825de904, 0x83461000);
+        cpu.put(0x83460014, 0);
+        e.state.offline.gate = true;
+        e.state
+            .offline
+            .queue_graphics_bootstrap(cpu, &mut e.state.input, true);
+        assert!(!e.state.offline.monitor);
+        cpu.put(0x821be7c8, 1);
+        e.state
+            .offline
+            .queue_graphics_bootstrap(cpu, &mut e.state.input, true);
+        assert!(e.state.offline.monitor);
+        assert!(!e.state.offline.controls);
+        assert!(!e.state.input.is_idle());
+    }
+
+    #[test]
     fn input_wrapper_preserves_live_task_registers_stack_and_flags() {
+        assert_wrapper_preserves_context(false);
+    }
+
+    #[test]
+    fn bootstrap_callback_preserves_busy_task_without_an_idle_loop() {
+        assert_wrapper_preserves_context(true);
+    }
+
+    fn assert_wrapper_preserves_context(callback: bool) {
         let mut e = fixture(&[0xe0a00001, 0xe12fff1e]);
         let cpu = e.handle.cpu();
         for (address, value) in [
@@ -1043,9 +1116,10 @@ mod tests {
             cpu.put(address, value)
         }
         cpu.bytes(
-            0x80a9e148,
+            if callback { 0x8007fbfc } else { 0x80a9e148 },
             &[
-                0xe3a00001, 0xe3a01020, 0xe3a02030, 0xe3a03040, 0xe3a0c050, 0xe3500002, 0xe12fff1e,
+                0xe59fc01c, 0xe58c0000, 0xe3a00001, 0xe3a01020, 0xe3a02030, 0xe3a03040, 0xe3a0c050,
+                0xe3500002, 0xe12fff1e, 0x83460000,
             ],
         );
         for (id, value) in [
@@ -1059,7 +1133,14 @@ mod tests {
         ] {
             cpu.set(id, value)
         }
-        e.enqueue(Input::Down(160, 85));
+        if callback {
+            // Constructors must be callable before the PEG thread/queue exists.
+            cpu.put(0x824d63d8, 0);
+            cpu.put(0x825de90c, 0);
+            assert!(e.state.input.enqueue_callback(0x4020f300));
+        } else {
+            e.enqueue(Input::Down(160, 85));
+        }
         e.run_slice(200, 100000).unwrap();
         let cpu = e.handle.cpu();
         assert_eq!(cpu.reg(R0), 8);
@@ -1069,6 +1150,10 @@ mod tests {
         assert_eq!(cpu.reg(R0 + 12), 22);
         assert_eq!(cpu.reg(SP), 0x8343fff0);
         assert_eq!(cpu.reg(CPSR) & 0xf0000, 0xf0000);
-        assert_eq!(e.state.input.delivered, 1);
+        assert_eq!(e.state.input.delivered, u64::from(!callback));
+        assert_eq!(
+            cpu.word(0x83460000),
+            if callback { 0x4020f300 } else { 0x83450000 }
+        );
     }
 }

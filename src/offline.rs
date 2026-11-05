@@ -44,6 +44,55 @@ impl Offline {
                 .is_some_and(|count| *count > 0)
     }
 
+    /// Queue native constructors from a safe task even when the RTOS never idles.
+    /// NativeInput's trampoline preserves the caller and defers kernel/IRQ contexts.
+    pub fn queue_graphics_bootstrap(
+        &mut self,
+        c: Cpu,
+        input: &mut crate::input::NativeInput,
+        hardware: bool,
+    ) {
+        // Full board initialization must finish rear-device discovery before UI
+        // objects subscribe to its state. Wait on the native event, never a delay.
+        if !self.gate
+            || (hardware && (c.word(0x821be7c8) & 1 == 0 || c.word(0x810b18e4) & 255 != 0))
+        {
+            return;
+        }
+        let manager = c.word(0x824d3e40);
+        let record = if manager != 0 {
+            c.word(manager + 0x14)
+        } else {
+            0
+        };
+        if !self.controls && record != 0 && c.word(record + 0x34) == c.word(0x825de908) {
+            c.put(0x4020f300, 0xe1a00000);
+            self.controls = input.enqueue_callback(0x4020f300);
+            return;
+        }
+        if !self.monitor && c.word(0x825de904) != 0 && manager != 0 {
+            let mut attrs = [0; 0x148];
+            for (offset, rect) in [
+                (4, [0i16, 0, 959, 539]),
+                (12, [0, 0, 959, 47]),
+                (20, [0, 492, 959, 539]),
+                (28, [0, 48, 959, 491]),
+                (36, [0, 96, 959, 491]),
+            ] {
+                for (i, v) in rect.into_iter().enumerate() {
+                    attrs[offset + i * 2..offset + i * 2 + 2].copy_from_slice(&v.to_le_bytes());
+                }
+            }
+            attrs[0x3c..0x46].copy_from_slice(b"VIRTUAL-PC");
+            attrs[0x34] = 1;
+            attrs[0x13d] = 1;
+            attrs[0x140] = 1;
+            let _ = c.write(0x4020f400, &attrs);
+            c.put(0x4020f200, 0xe1a00000);
+            self.monitor = input.enqueue_callback(0x4020f200);
+        }
+    }
+
     fn begin_graphics_call(&mut self, c: Cpu, callback: u32) {
         let thread = c.word(0x810da120);
         // Only inherit recursion owned by this task. A lock held by another
@@ -300,41 +349,7 @@ impl Offline {
             self.launch(c, 0x4020f100, pc);
             return true;
         }
-        let manager = c.word(0x824d3e40);
-        let record = if manager != 0 {
-            c.word(manager + 0x14)
-        } else {
-            0
-        };
-        if !self.controls && record != 0 && c.word(record + 0x34) == c.word(0x825de908) {
-            c.put(0x4020f300, 0xe1a00000);
-            self.controls = true;
-            self.launch(c, 0x4020f300, pc);
-            return true;
-        }
-        if !self.monitor && c.word(0x825de904) != 0 && manager != 0 {
-            let mut attrs = [0; 0x148];
-            for (offset, rect) in [
-                (4, [0i16, 0, 959, 539]),
-                (12, [0, 0, 959, 47]),
-                (20, [0, 492, 959, 539]),
-                (28, [0, 48, 959, 491]),
-                (36, [0, 96, 959, 491]),
-            ] {
-                for (i, v) in rect.into_iter().enumerate() {
-                    attrs[offset + i * 2..offset + i * 2 + 2].copy_from_slice(&v.to_le_bytes());
-                }
-            }
-            attrs[0x3c..0x46].copy_from_slice(b"VIRTUAL-PC");
-            attrs[0x34] = 1;
-            attrs[0x13d] = 1;
-            attrs[0x140] = 1;
-            let _ = c.write(0x4020f400, &attrs);
-            c.put(0x4020f200, 0xe1a00000);
-            self.monitor = true;
-            self.launch(c, 0x4020f200, pc);
-            return true;
-        }
+
         false
     }
 }

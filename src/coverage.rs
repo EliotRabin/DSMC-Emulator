@@ -117,10 +117,10 @@ pub const COMPONENTS: &[Component] = &[
         remaining: "Chaine REC, encodeur, DMA IOB et stockage camera non valides ensemble.",
     },
     Component {
-        name: "Ventilation & alimentation",
-        level: Level::Missing,
-        scope: "PMIC partiel ; aucune simulation de la ventilation ou des rails.",
-        remaining: "Tachymetres, PWM, sequenceurs, batterie et ADC de puissance.",
+        name: "Alimentation & LED",
+        level: Level::Subset,
+        scope: "UCD9081 / PMBus : rails et GPIO ; LTC4222 : deux canaux ; registres LED et extension GPIO.",
+        remaining: "Valeurs nominales synthetiques ; rampes, batterie, fautes analogiques, IRQ ALERT, flash et variantes UCD90160/90240 absentes.",
     },
     Component {
         name: "Ethernet & accessoires",

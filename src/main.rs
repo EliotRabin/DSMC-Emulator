@@ -10,12 +10,15 @@ mod display;
 mod engine;
 mod fpga;
 mod hardware;
+mod hotswap;
 mod i2c;
+mod indicators;
 mod input;
 mod iob;
 mod nand;
 mod offline;
 mod onewire;
+mod power;
 mod sata;
 mod storage;
 mod unicorn;
@@ -139,8 +142,15 @@ fn headless(args: &[String]) -> Result<(), String> {
                     .collect();
                 indexes.len() == 9 && indexes.iter().all(|v| *v < 9)
             });
-            if r.native_hardware_checks.len() == 3
-                && r.native_hardware_checks.values().all(|v| *v)
+            if [
+                "NAND",
+                "TPS65950",
+                "brain GPIO expander",
+                "power sequencers",
+                "LED controllers",
+            ]
+            .iter()
+            .all(|name| r.native_hardware_checks.get(*name) == Some(&true))
                 && boards
             {
                 phase = 5;
@@ -155,7 +165,12 @@ fn headless(args: &[String]) -> Result<(), String> {
                     .iter()
                     .any(|c| c.label == "OK" && c.address == *a)
             });
-            if r.instructions >= next_action {
+            if r.instructions >= next_action
+                && machine.input_is_idle()
+                && r.bootstrap_threads
+                    .get("peg_thread")
+                    .is_some_and(|thread| thread.state == 5)
+            {
                 if let Some(ok) = r
                     .controls
                     .iter()
